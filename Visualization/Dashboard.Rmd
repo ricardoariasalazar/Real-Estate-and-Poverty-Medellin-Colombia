@@ -1,0 +1,249 @@
+---
+title: "Visualization PRoject"
+author: Ricardo Arias (30550971)
+date: 07/06/2021
+output: Shiny Dashboard
+---
+
+```{r}
+
+# Libraries
+#install.packages('shiny')
+library(shiny)
+#install.packages('dplyr')
+library(dplyr)
+#install.packages('ggplot2')
+library(ggplot2)
+#install.packages('leaflet')
+library(leaflet)
+#install.packages('sf')
+library(sf)
+#install.packages('tidyverse')
+library(tidyverse)
+#install.packages("scales")
+library(scales)
+#install.packages("shinydashboard")
+library(shinydashboard)
+#install.packages("shinyWidgets")
+library(shinyWidgets)
+
+
+#### Dashboard
+
+ui <- dashboardPage(
+  
+  dashboardHeader(title='House Affordability in Medellin, Colombia', titleWidth =400),
+  
+  dashboardSidebar(width=400, br(),
+                   column(1, " "),  
+                   column(12, 
+                          fluidRow(box(width=12, title = "Price", status = "primary", 
+                                       sliderInput("pricerange", label=NULL, "format", "Custom Format:", min = 0, max = 420400, 
+                                                   value = c(0, 420400), step = 50, pre = "$", sep = ",", animate = TRUE)),br()),
+                          
+                          fluidRow(box(width=12, title = "Multidimensional Poverty Index", status = "primary", 
+                                       sliderInput("ipmrange", label=NULL, min = 0, max = 100, 
+                                                   value = c(0, 100), step = 1, animate = TRUE)),br()),
+                          
+                          fluidRow(box(width=12, title = "Date", status = "primary", 
+                                       dateRangeInput("daterange", label=NULL, start  = "2020-01-01", end= "2020-12-31", 
+                                                      min = "2020-01-01", max = "2020-12-31", format = "dd/mm/yy", 
+                                                      separator = "to")),br()),
+                          
+                          fluidRow(box(width=12, title = "Property Type", status = "primary", 
+                                       selectInput("proptype", label=NULL, c("Apartment", "Commercial","Car Park" ,"Estate", 
+                                                     "House", "Lot", "Office", "Other" ), multiple=TRUE)),br()),
+                          
+                          fluidRow(box(width=12, title = "Operation Type", status = "primary", 
+                                       selectInput("optype", label=NULL, c("Rent", "Sell"), multiple=TRUE)),br()),
+                          
+                          fluidRow(box(width=12, title = "Commune", status = "primary", 
+                                       selectInput("commune", label=NULL, c("ARANJUEZ", "BELEN", "BUENOS AIRES", 
+                                                                            "CASTILLA", "DOCE DE OCTUBRE", "EL POBLADO", "GUAYABAL",
+                                                                            "LA AMERICA", "LA CANDELARIA", "LAURELES", "MANRIQUE", 
+                                                                            "PALMITAS", "POPULAR", "ALTAVISTA", "ROBLEDO", 
+                                                                            "SAN ANTONIO DE PRADO", "SAN CRISTOBAL", "SANTA CRUZ", 
+                                                                            "SANTA ELENA", "SAN JAVIER", "VILLA HERMOSA"), 
+                                                   multiple=TRUE)),br())), 
+                   column(1, " ")),
+  
+  
+  dashboardBody(fluidRow(column(7,
+                                box(width=12, height=500, title = "Property Location Map", status = "primary", leafletOutput("map"))),
+                         column(5, 
+                                box(width=12, height=500, title = "Communes", status = "primary", leafletOutput("Map"), 
+                                    "The following map is informative about the position of each commune in the city, the filter is in the left sidebar"))),
+                fluidRow(column(4, 
+                                tabBox(width=12, height= 500, selected = "Properties by Operation (%)", 
+                                       tabPanel("Properties by Operation (%)", plotOutput('pieop')),
+                                       tabPanel("Properties by MPI Class (%)", plotOutput('pieipm')))),
+                         column(4, 
+                                tabBox(width=12, height= 500, selected = "Properties by Type (#)", 
+                                       tabPanel("Properties by Type (#)", plotOutput('bar_prop')),
+                                       tabPanel("Properties by Commune (#)", plotOutput('bar_commune')))),
+                         column(4, 
+                                tabBox(width=12, height= 500, selected = "Dist. of Rent Price", 
+                                       tabPanel("Dist. of Rent Price", plotOutput('hist_rent')),
+                                       tabPanel("Dist. of Sell Price", plotOutput('hist_sell'))))))
+
+)
+
+
+server <- function(input, output, session) {
+  
+  ####### Read Original Data#########################
+  
+  # Property table
+  prop <- read.csv(file='./data/properties.csv') %>% drop_na(commune_name)
+  prop$date <- as.Date(prop$date, format = "%d/%m/%y")
+  prop$property_type[prop$property_type == "Business Premises"] <- 'Commercial'
+  
+  # Communes
+  communes <- st_read('./data/communes.shp') %>% st_transform(4326) %>%
+    rename(commune_name = NOMBRE)
+  
+  ################# Reactive Property Data Frame ################################
+  
+  reactive_prop <- reactive({
+    if(is.null(input$proptype) & is.null(input$optype) & is.null(input$commune)){
+      prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]))} 
+    
+    else if(is.null(input$proptype) & is.null(input$optype)){
+      prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (commune_name %in% input$commune))} 
+    
+    else if(is.null(input$optype) & is.null(input$commune)){
+     prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (property_type %in% input$proptype))} 
+    
+    else if(is.null(input$proptype) & is.null(input$commune)){
+     prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (operation_type %in% input$optype))} 
+    
+    else if(is.null(input$proptype)){
+     prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (operation_type %in% input$optype) & 
+                              (commune_name %in% input$commune))}
+    
+    else if(is.null(input$optype)){
+     prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (property_type %in% input$proptype) & 
+                              (commune_name %in% input$commune))}
+    
+    else if(is.null(input$commune)){
+     prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                               (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                               (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & (property_type %in% input$proptype) & 
+                              (operation_type %in% input$optype))}
+    
+    
+    else {prop %>% dplyr::filter((date >= input$daterange[1] & date <= input$daterange[2]) & 
+                                   (price >= input$pricerange[1] & price <= input$pricerange[2]) & 
+                                   (ipm >= input$ipmrange[1] & ipm <= input$ipmrange[2]) & 
+                                   (property_type %in% input$proptype) & (operation_type %in% input$optype) & 
+                                   (commune_name %in% input$commune))}})
+
+  
+  
+  ############### Map of properties on the map (Latitud and Longitud) ##############################
+
+   color <- colorFactor(palette=c("#F8766D", "#00BFC4"), levels = c("Rent", "Sell"))
+  
+  output$map <-renderLeaflet({
+        reactive_prop() %>% leaflet() %>%
+        setView(lng = -75.58, lat = 6.25, zoom = 11) %>%
+        addProviderTiles("CartoDB.Positron")  %>% 
+        addCircleMarkers(
+        lng=~long, # Longitude coordinates
+        lat=~lat, # Latitude coordinates
+        radius=~2.5, # Total count
+        stroke=FALSE, # Circle stroke
+        fillOpacity=0.5, # Circle Fill Opacity
+        color=~color(operation_type), # Circle Color 
+        label = ~as.character(paste("Price: ",dollar_format()(price),"\nType:", property_type))
+      ) %>% addLegend("bottomright", pal = color, values = ~operation_type, opacity = 1)
+    })
+  
+  
+  ############## ShapeFile Map of Communes ################################################
+  
+  output$Map<-renderLeaflet({
+      leaflet(communes) %>% addTiles() %>%
+        addPolygons(color = '#444444', 
+                    layerId=~communes$NOMBRE,
+                    weight = 1, 
+                    smoothFactor = 0.5,
+                    opacity = 1.0, 
+                    fillOpacity = 0.5,
+                    highlightOptions = highlightOptions(color = "White",
+                                                        weight = 3,
+                                                        bringToFront = TRUE), 
+                    label=communes$commune_name)})
+  
+  
+  
+  ############# PieChart of Operation Type ############################################
+  reactive_optype <- reactive({reactive_prop() %>% group_by(operation_type) %>% count() %>% ungroup() %>% arrange(n)%>% 
+      mutate(per=`n`/sum(`n`)) %>% mutate(perc=scales::percent(per)) %>% mutate(ypos = cumsum(per)- 0.5*per )})
+  
+  output$pieop <- renderPlot({ggplot(reactive_optype(), aes(x="", y=per, fill=operation_type, label= perc)) + geom_bar(stat="identity", width=1) +  coord_polar("y", start=0)+ theme_minimal() + theme(legend.position = "none", axis.title.y = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.x = element_blank(),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank()) + geom_text(aes(y = ypos, label = perc), color = "white", size=6) }) 
+  
+  
+############# PieChart of IPM Class ############################################
+  reactive_ipmclass <- reactive({reactive_prop() %>% group_by(ipm_class) %>% count() %>% ungroup() %>% arrange(n)%>% 
+      mutate(per=`n`/sum(`n`)) %>% mutate(perc=scales::percent(per)) %>% mutate(ypos = cumsum(per)- 0.5*per )})
+  
+  output$pieipm <- renderPlot({ggplot(reactive_ipmclass(), aes(x="", y=per, fill=ipm_class, label= perc)) + geom_bar(stat="identity", width=1) +  coord_polar("y", start=0)+ scale_fill_brewer(palette="Blues")+theme_minimal() + theme(legend.position = "top", axis.title.y = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.x = element_blank(),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank())}) 
+  
+  
+  
+  ############## Barchart Property Type ######################################################
+
+  reactive_proptype <- reactive({reactive_prop() %>% group_by(property_type) %>% count() %>% ungroup() %>% arrange(desc(n))})
+  
+output$bar_prop <- renderPlot({ggplot(data=reactive_proptype(), aes(x=n, y=reorder(property_type, n), fill=property_type)) + geom_bar(stat="identity")+ scale_fill_brewer(palette="Dark2") +geom_text(aes(label=scales::comma(round(n), accuracy=1)), hjust=-0.1, size=6) + 
+    xlim(0, 1.4*max(reactive_proptype()$n)) + theme_minimal() + theme(legend.position = "none", axis.title.x = element_blank(),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank()) + 
+    theme(axis.text.y = element_text(size = 16)) + ylab(" ") })
+
+  ############## Barchart Commune ######################################################
+
+  reactive_commune <- reactive({reactive_prop() %>% group_by(commune_name) %>% count() %>% ungroup() %>% arrange(desc(n))})
+  
+output$bar_commune <- renderPlot({ggplot(data=reactive_commune(), aes(x=n, y=reorder(commune_name, n), fill=commune_name)) + geom_bar(stat="identity") +geom_text(aes(label=scales::comma(round(n), accuracy=1)), hjust=-0.1, size=6) + 
+    xlim(0, 1.4*max(reactive_commune()$n)) + theme_minimal() + theme(legend.position = "none", axis.title.x = element_blank(),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank()) + 
+    theme(axis.text.y = element_text(size = 12)) + ylab(" ") })
+
+######################## Histogram Price #######################################
+
+# Rent
+output$hist_rent <- renderPlot({ggplot(reactive_prop()[reactive_prop()$operation_type == 'Rent',]) + 
+    geom_density(aes(x=price, fill=operation_type)) +  xlab("AUD") + theme_minimal() + 
+    theme(legend.position = "none", axis.text.x = element_text(size = 14), 
+          axis.title.y = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
+    geom_vline(xintercept = median(reactive_prop()[reactive_prop()$operation_type == 'Rent',]$price), linetype=1) + scale_x_continuous(labels=scales::dollar_format()) + scale_fill_manual( values = c("#F8766D"))})
+
+# Sell
+output$hist_sell <- renderPlot({ggplot(reactive_prop()[reactive_prop()$operation_type == 'Sell',]) + 
+    geom_density(aes(x=price, fill=operation_type)) +  theme_minimal() +  xlab("AUD") + 
+    theme(legend.position = "none", axis.text.x = element_text(size = 14), axis.title.y = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
+    geom_vline(xintercept = median(reactive_prop()[reactive_prop()$operation_type == 'Sell',]$price), linetype=1) + scale_x_continuous(labels=scales::dollar_format()) + scale_fill_manual( values = c("#00BFC4"))})
+
+}
+
+shinyApp(ui, server)
+```
